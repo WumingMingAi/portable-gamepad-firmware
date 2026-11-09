@@ -1924,88 +1924,6 @@ static void read_all_gpio_ports() {
     }
 }
 
-static void handle_buttons() {
-#ifdef CONFIG_PGF_TRANSPORT_SWITCH
-    check_transport_switch();
-#endif
-    read_all_gpio_ports();
-    update_button_states();
-
-    int sys_button_state = button_pressed[BUTTON(system)];
-    int64_t now = k_uptime_get();
-    if (!prev_sys_button_state && sys_button_state) {
-        sys_button_pressed_at = now;
-        sys_button_very_long_press_handled = false;
-    }
-
-#ifdef CONFIG_PGF_PLATFORM_HOTKEY
-    {
-        int target = -1;
-        if (sys_button_state) {
-            if (BUTTON_GET(west)) {
-                target = INPUT_MODE_PC;
-            } else if (BUTTON_GET(east)) {
-                target = INPUT_MODE_SWITCH;
-            } else if (BUTTON_GET(south)) {
-                target = INPUT_MODE_STADIA;
-            }
-        }
-        if (target != platform_hotkey_target) {
-            platform_hotkey_target = target;
-            platform_hotkey_start = now;
-        }
-        if (target != -1 && now - platform_hotkey_start >= CONFIG_PGF_PLATFORM_HOTKEY_HOLD_MS) {
-            trigger_platform_switch(target);
-        }
-    }
-#endif
-
-    if (sys_button_state && !sys_button_very_long_press_handled
-#ifdef CONFIG_PGF_PLATFORM_HOTKEY
-        && platform_hotkey_target == -1
-#endif
-    ) {
-        int64_t duration = now - sys_button_pressed_at;
-        if (duration >= SYS_BUTTON_VERY_LONG_PRESS_MS) {
-            sys_button_very_long_press_handled = true;
-            if (usb_ready) {
-#if DT_NODE_EXISTS(DT_PATH(gamepad_buttons, home))
-                /* Wired bootloader entry requires the system button (Start)
-                 * AND Home to be held together, to avoid accidental entry. */
-                if (BUTTON_GET(home)) {
-                    set_status_led(false);
-                    if (reset_to_bootloader) {
-                        reset_to_bootloader();
-                    }
-                }
-#else
-                set_status_led(false);
-                if (reset_to_bootloader) {
-                    reset_to_bootloader();
-                }
-#endif
-            } else {
-#ifdef CONFIG_BT
-                k_work_submit(&clear_bonds_work);
-#endif
-            }
-        } else if (duration > SYS_BUTTON_LONG_PRESS_MS) {
-            if (!usb_ready) {
-                set_led_mode(LED_ON);
-            }
-        }
-    }
-
-    if (prev_sys_button_state && !sys_button_state) {
-        int64_t duration = now - sys_button_pressed_at;
-        if (!usb_ready && !sys_button_very_long_press_handled &&
-            (duration >= SYS_BUTTON_LONG_PRESS_MS)) {
-            k_work_reschedule(&sleep_work, K_NO_WAIT);
-        }
-    }
-    prev_sys_button_state = sys_button_state;
-}
-
 #ifdef CONFIG_PGF_PLATFORM_HOTKEY
 static int platform_hotkey_target = -1;
 static int64_t platform_hotkey_start;
@@ -2122,6 +2040,87 @@ static void rf_dongle_poll(void) {
     set_status_led(rf_link_linked());
 }
 #endif
+static void handle_buttons() {
+#ifdef CONFIG_PGF_TRANSPORT_SWITCH
+    check_transport_switch();
+#endif
+    read_all_gpio_ports();
+    update_button_states();
+
+    int sys_button_state = button_pressed[BUTTON(system)];
+    int64_t now = k_uptime_get();
+    if (!prev_sys_button_state && sys_button_state) {
+        sys_button_pressed_at = now;
+        sys_button_very_long_press_handled = false;
+    }
+
+#ifdef CONFIG_PGF_PLATFORM_HOTKEY
+    {
+        int target = -1;
+        if (sys_button_state) {
+            if (BUTTON_GET(west)) {
+                target = INPUT_MODE_PC;
+            } else if (BUTTON_GET(east)) {
+                target = INPUT_MODE_SWITCH;
+            } else if (BUTTON_GET(south)) {
+                target = INPUT_MODE_STADIA;
+            }
+        }
+        if (target != platform_hotkey_target) {
+            platform_hotkey_target = target;
+            platform_hotkey_start = now;
+        }
+        if (target != -1 && now - platform_hotkey_start >= CONFIG_PGF_PLATFORM_HOTKEY_HOLD_MS) {
+            trigger_platform_switch(target);
+        }
+    }
+#endif
+
+    if (sys_button_state && !sys_button_very_long_press_handled
+#ifdef CONFIG_PGF_PLATFORM_HOTKEY
+        && platform_hotkey_target == -1
+#endif
+    ) {
+        int64_t duration = now - sys_button_pressed_at;
+        if (duration >= SYS_BUTTON_VERY_LONG_PRESS_MS) {
+            sys_button_very_long_press_handled = true;
+            if (usb_ready) {
+#if DT_NODE_EXISTS(DT_PATH(gamepad_buttons, home))
+                /* Wired bootloader entry requires the system button (Start)
+                 * AND Home to be held together, to avoid accidental entry. */
+                if (BUTTON_GET(home)) {
+                    set_status_led(false);
+                    if (reset_to_bootloader) {
+                        reset_to_bootloader();
+                    }
+                }
+#else
+                set_status_led(false);
+                if (reset_to_bootloader) {
+                    reset_to_bootloader();
+                }
+#endif
+            } else {
+#ifdef CONFIG_BT
+                k_work_submit(&clear_bonds_work);
+#endif
+            }
+        } else if (duration > SYS_BUTTON_LONG_PRESS_MS) {
+            if (!usb_ready) {
+                set_led_mode(LED_ON);
+            }
+        }
+    }
+
+    if (prev_sys_button_state && !sys_button_state) {
+        int64_t duration = now - sys_button_pressed_at;
+        if (!usb_ready && !sys_button_very_long_press_handled &&
+            (duration >= SYS_BUTTON_LONG_PRESS_MS)) {
+            k_work_reschedule(&sleep_work, K_NO_WAIT);
+        }
+    }
+    prev_sys_button_state = sys_button_state;
+}
 
 // Used when dpad_mode redirects the dpad to drive a stick instead of its
 // own input: full deflection only (no partial range), in the same 0-65535

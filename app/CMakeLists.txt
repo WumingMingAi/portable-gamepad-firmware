@@ -8,6 +8,10 @@ target_sources(app PRIVATE
     src/main.c
 )
 
+if (CONFIG_ESB)
+    target_sources(app PRIVATE src/rf_link.c)
+endif()
+
 if (CONFIG_PGF_BATTERY_LEVEL_REPORTING_VBATT)
     target_sources(app PRIVATE src/battery_vbatt.c)
 elseif (CONFIG_PGF_BATTERY_LEVEL_REPORTING_PMIC)
