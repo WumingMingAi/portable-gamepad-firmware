@@ -1,0 +1,12 @@
+/ {
+    /* 3-position slide switch (SPDT ON-OFF-ON), common pin to GND:
+     *   switch_a to GND -> BLE transport
+     *   switch_b to GND -> ESB (2.4GHz) transport
+     *   neither         -> USB-only (all radios off)
+     * Change the pins below if your board breaks out different ones. */
+    transport-switch {
+        compatible = "gpio-keys";
+        switch_a { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        switch_b { gpios = <&gpio0 12 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+    };
+};

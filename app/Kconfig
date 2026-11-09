@@ -26,6 +26,50 @@ config PGF_DPAD_MODES
         that already has a real analog stick axis configured via
         gamepad-axes - the build fails otherwise.
 
+config PGF_TRANSPORT_SWITCH
+    bool "Three-position transport switch (BLE / ESB / USB-only)"
+    default n
+    help
+        Reads a two-GPIO three-position switch (defined as a
+        /transport-switch node with switch_a and switch_b children,
+        active-low) at boot to select the wireless transport:
+        switch_a grounded = BLE, switch_b grounded = ESB, neither =
+        USB-only. While running, a change to the switch position
+        triggers a reboot into the new transport. USB always wins when
+        a cable is connected.
+
+config PGF_ESB_DONGLE
+    bool "ESB dongle mode (radio receiver + USB gamepad output)"
+    depends on ESB
+    default n
+    help
+        Turns this build into the 2.4GHz receiver side: no buttons, no
+        BLE; button states and the platform arrive over ESB from the
+        controller and are output over USB. The gamepad-buttons node
+        must still list the same children in the same order as the
+        controller build (dummy pins are fine) so button indexes match.
+
+config PGF_PLATFORM_HOTKEY
+    bool "Platform switch hotkey (hold system + west/east/south)"
+    default n
+    help
+        Holding the system button together with west (LP), east (MK)
+        or south (LK) for PGF_PLATFORM_HOTKEY_HOLD_MS switches the
+        platform to PC/Switch/Stadia respectively, saves it and
+        reboots. While the combination is held, the normal system
+        button long-press actions (sleep / clear bonds / bootloader)
+        are suppressed.
+
+config PGF_PLATFORM_HOTKEY_HOLD_MS
+    int "Platform hotkey hold time in ms"
+    default 5000
+    depends on PGF_PLATFORM_HOTKEY
+
+config PGF_ESB_RF_CHANNEL
+    int "ESB radio channel (0-100, 1 MHz spacing from 2400 MHz)"
+    default 76
+    depends on ESB
+
 config PGF_MANUFACTURER_NAME
     string "Device manufacturer string"
     default "Arasaka"

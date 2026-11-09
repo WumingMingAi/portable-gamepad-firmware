@@ -47,8 +47,11 @@
 #include "battery.h"
 #include "bootloader.h"
 #include "chk.h"
+#include "rf_link.h"
 #include "sleep.h"
 #include "usb_vbus.h"
+
+#include <zephyr/sys/reboot.h>
 
 LOG_MODULE_REGISTER(pgf, LOG_LEVEL_DBG);
 
@@ -96,6 +99,14 @@ enum InputMode {
 };
 
 static enum InputMode input_mode = INPUT_MODE_UNKNOWN;
+
+enum Transport {
+    TRANSPORT_BLE = 0,
+    TRANSPORT_ESB = 1,
+    TRANSPORT_USB_ONLY = 2,
+};
+
+static enum Transport transport = TRANSPORT_BLE;
 
 enum DpadMode {
     DPAD_MODE_UNKNOWN = 0,
@@ -1914,6 +1925,9 @@ static void read_all_gpio_ports() {
 }
 
 static void handle_buttons() {
+#ifdef CONFIG_PGF_TRANSPORT_SWITCH
+    check_transport_switch();
+#endif
     read_all_gpio_ports();
     update_button_states();
 
@@ -1924,27 +1938,53 @@ static void handle_buttons() {
         sys_button_very_long_press_handled = false;
     }
 
-    if (sys_button_state && !sys_button_very_long_press_handled) {
+#ifdef CONFIG_PGF_PLATFORM_HOTKEY
+    {
+        int target = -1;
+        if (sys_button_state) {
+            if (BUTTON_GET(west)) {
+                target = INPUT_MODE_PC;
+            } else if (BUTTON_GET(east)) {
+                target = INPUT_MODE_SWITCH;
+            } else if (BUTTON_GET(south)) {
+                target = INPUT_MODE_STADIA;
+            }
+        }
+        if (target != platform_hotkey_target) {
+            platform_hotkey_target = target;
+            platform_hotkey_start = now;
+        }
+        if (target != -1 && now - platform_hotkey_start >= CONFIG_PGF_PLATFORM_HOTKEY_HOLD_MS) {
+            trigger_platform_switch(target);
+        }
+    }
+#endif
+
+    if (sys_button_state && !sys_button_very_long_press_handled
+#ifdef CONFIG_PGF_PLATFORM_HOTKEY
+        && platform_hotkey_target == -1
+#endif
+    ) {
         int64_t duration = now - sys_button_pressed_at;
         if (duration >= SYS_BUTTON_VERY_LONG_PRESS_MS) {
             sys_button_very_long_press_handled = true;
-if (usb_ready) {
-  #if DT_NODE_EXISTS(DT_PATH(gamepad_buttons, home))
-                  /* Wired bootloader entry requires the system button (Start)
-                   * AND Home to be held together, to avoid accidental entry. */
-                  if (BUTTON_GET(home)) {
-                      set_status_led(false);
-                      if (reset_to_bootloader) {
-                          reset_to_bootloader();
-                      }
-                  }
-  #else
-                  set_status_led(false);
-                  if (reset_to_bootloader) {
-                      reset_to_bootloader();
-                  }
-  #endif
-              } else {
+            if (usb_ready) {
+#if DT_NODE_EXISTS(DT_PATH(gamepad_buttons, home))
+                /* Wired bootloader entry requires the system button (Start)
+                 * AND Home to be held together, to avoid accidental entry. */
+                if (BUTTON_GET(home)) {
+                    set_status_led(false);
+                    if (reset_to_bootloader) {
+                        reset_to_bootloader();
+                    }
+                }
+#else
+                set_status_led(false);
+                if (reset_to_bootloader) {
+                    reset_to_bootloader();
+                }
+#endif
+            } else {
 #ifdef CONFIG_BT
                 k_work_submit(&clear_bonds_work);
 #endif
@@ -1965,6 +2005,123 @@ if (usb_ready) {
     }
     prev_sys_button_state = sys_button_state;
 }
+
+#ifdef CONFIG_PGF_PLATFORM_HOTKEY
+static int platform_hotkey_target = -1;
+static int64_t platform_hotkey_start;
+
+static void trigger_platform_switch(int mode) {
+    LOG_INF("platform hotkey: switching to mode %d", mode);
+    input_mode = (enum InputMode) mode;
+    config.config_version = CONFIG_VERSION;
+    config.input_mode = mode;
+    settings_save_one(SETTINGS_KEY, &config, sizeof(config));
+    for (int i = 0; i < 6; i++) {
+        set_status_led((i % 2) == 0);
+        k_sleep(K_MSEC(150));
+    }
+    set_status_led(false);
+    sys_reboot(SYS_REBOOT_WARM);
+}
+#endif
+
+#ifdef CONFIG_PGF_TRANSPORT_SWITCH
+static const struct gpio_dt_spec switch_a = GPIO_DT_SPEC_GET(DT_PATH(transport_switch, switch_a), gpios);
+static const struct gpio_dt_spec switch_b = GPIO_DT_SPEC_GET(DT_PATH(transport_switch, switch_b), gpios);
+
+static void configure_transport_switch(void) {
+    CHK(gpio_pin_configure_dt(&switch_a, GPIO_INPUT | GPIO_PULL_UP | GPIO_ACTIVE_LOW));
+    CHK(gpio_pin_configure_dt(&switch_b, GPIO_INPUT | GPIO_PULL_UP | GPIO_ACTIVE_LOW));
+}
+
+static enum Transport read_transport_switch(void) {
+    bool a = gpio_pin_get_dt(&switch_a) > 0;  // active low: 1 = grounded
+    bool b = gpio_pin_get_dt(&switch_b) > 0;
+    if (a && !b) {
+        return TRANSPORT_BLE;
+    }
+    if (!a && b) {
+        return TRANSPORT_ESB;
+    }
+    return TRANSPORT_USB_ONLY;
+}
+
+static int transport_switch_change_count;
+
+static void check_transport_switch(void) {
+    enum Transport t = read_transport_switch();
+    if (t != transport) {
+        if (++transport_switch_change_count >= 20) {
+            LOG_INF("transport switch changed to %d, rebooting", t);
+            sys_reboot(SYS_REBOOT_WARM);
+        }
+    } else {
+        transport_switch_change_count = 0;
+    }
+}
+#endif
+
+#ifdef CONFIG_ESB
+static uint8_t rf_tx_buf[RF_PAYLOAD_LEN];
+static int64_t rf_last_tx;
+
+/* Bits 0..17 of the button bytes. Must match the gamepad-buttons child
+ * order of the dongle build's overlay. */
+#define RF_BUTTON_BITS()                                           \
+    X(dpad_left, 0) X(dpad_right, 1) X(dpad_up, 2) X(dpad_down, 3) \
+    X(south, 4) X(east, 5) X(west, 6) X(north, 7)                  \
+    X(l1, 8) X(r1, 9) X(l2, 10) X(r2, 11)                          \
+    X(l3, 12) X(r3, 13) X(select, 14) X(start, 15)                 \
+    X(home, 16) X(button14, 17)
+
+static void rf_controller_poll(void) {
+    int64_t now = k_uptime_get();
+    if (now - rf_last_tx < 1) {
+        return;
+    }
+    rf_last_tx = now;
+
+    rf_tx_buf[0] = RF_MAGIC;
+    rf_tx_buf[1] = input_mode;
+    rf_tx_buf[2] = 0;
+    rf_tx_buf[3] = 0;
+    rf_tx_buf[4] = 0;
+#define X(name, bit) if (BUTTON_GET(name)) rf_tx_buf[2 + ((bit) >> 3)] |= 1 << ((bit) & 7);
+    RF_BUTTON_BITS()
+#undef X
+    rf_tx_buf[5] = (uint8_t) rf_last_tx;
+
+    rf_link_tx(rf_tx_buf);
+    set_status_led(rf_link_linked());
+}
+#endif
+
+#ifdef CONFIG_PGF_ESB_DONGLE
+static uint8_t rf_rx_buf[RF_PAYLOAD_LEN];
+
+static void rf_dongle_poll(void) {
+    if (rf_link_poll_rx(rf_rx_buf)) {
+        memset(button_pressed, 0, sizeof(button_pressed));
+#define X(name, bit) if (rf_rx_buf[2 + ((bit) >> 3)] & (1 << ((bit) & 7))) button_pressed[BUTTON(name)] = true;
+        RF_BUTTON_BITS()
+#undef X
+
+        uint8_t platform = rf_rx_buf[1];
+        if (platform != input_mode &&
+            platform >= INPUT_MODE_STADIA && platform <= INPUT_MODE_PC) {
+            LOG_INF("dongle: platform %d from controller, saving and rebooting", platform);
+            config.config_version = CONFIG_VERSION;
+            config.input_mode = platform;
+            input_mode = (enum InputMode) platform;
+            settings_save_one(SETTINGS_KEY, &config, sizeof(config));
+            sys_reboot(SYS_REBOOT_WARM);
+        }
+    } else if (!rf_link_linked()) {
+        memset(button_pressed, 0, sizeof(button_pressed));
+    }
+    set_status_led(rf_link_linked());
+}
+#endif
 
 // Used when dpad_mode redirects the dpad to drive a stick instead of its
 // own input: full deflection only (no partial range), in the same 0-65535
@@ -2274,22 +2431,16 @@ static void determine_input_mode() {
             LOG_INF("saved input mode: %d", input_mode);
         }
     }
-
-    read_all_gpio_ports();
-    update_button_states();
-
-    if (BUTTON_GET(south)) {
-        input_mode = INPUT_MODE_STADIA;
-    } else if (BUTTON_GET(east)) {
-        input_mode = INPUT_MODE_SWITCH;
-    } else if (BUTTON_GET(west)) {
-        input_mode = INPUT_MODE_PC;
-    }
 #endif
 
     if (input_mode == INPUT_MODE_UNKNOWN) {
         input_mode = CONFIG_PGF_INPUT_MODE_DEFAULT;
     }
+
+#ifdef CONFIG_PGF_TRANSPORT_SWITCH
+    transport = read_transport_switch();
+    LOG_INF("transport: %d", transport);
+#endif
 
 #ifdef CONFIG_PGF_INPUT_MODE_DYNAMIC
     config.config_version = CONFIG_VERSION;
@@ -2405,11 +2556,15 @@ int main() {
 #endif
     sleep_init(&sys_button);
     configure_buttons();
+#ifdef CONFIG_PGF_TRANSPORT_SWITCH
+    configure_transport_switch();
+#endif
     determine_input_mode();
     determine_dpad_mode();
     report_init();
 
 #ifdef CONFIG_BT
+    if (transport == TRANSPORT_BLE) {
     if (!CHK(bt_conn_auth_cb_register(&conn_auth_callbacks))) {
         return 0;
     }
@@ -2419,6 +2574,7 @@ int main() {
     }
 
     hids_init(bluetooth_report_map, bluetooth_report_map_length, bluetooth_report_id, bluetooth_report_size);
+    }
 #endif
 
 #ifdef CONFIG_USBD_HID_SUPPORT
@@ -2432,6 +2588,7 @@ int main() {
     battery_init();
 
 #ifdef CONFIG_BT
+    if (transport == TRANSPORT_BLE) {
     if (!CHK(bt_enable(NULL))) {
         return 0;
     }
@@ -2443,6 +2600,13 @@ int main() {
     settings_load();
     set_bt_name();
     advertising_start();
+    }
+#endif
+
+#ifdef CONFIG_ESB
+    if (transport == TRANSPORT_ESB || IS_ENABLED(CONFIG_PGF_ESB_DONGLE)) {
+        rf_link_init();
+    }
 #endif
 
     while (keep_going) {
@@ -2451,11 +2615,15 @@ int main() {
         k_sleep(K_USEC(1));
 #endif
 #ifdef CONFIG_BT
-        if (!usb_ready) {
+        if (!usb_ready && transport == TRANSPORT_BLE) {
             k_sem_take(&bt_event_sem, BT_EVENT_SEM_TIMEOUT);
         }
 #endif
+#ifdef CONFIG_PGF_ESB_DONGLE
+        rf_dongle_poll();
+#else
         handle_buttons();
+#endif
 #ifdef CONFIG_ADC
         read_adc();
 #endif
@@ -2496,7 +2664,14 @@ int main() {
             }
 #endif
         } else {
+#ifdef CONFIG_ESB
+            if (transport == TRANSPORT_ESB) {
+                rf_controller_poll();
+                k_sleep(K_USEC(500));
+            }
+#endif
 #ifdef CONFIG_BT
+            if (transport == TRANSPORT_BLE) {
             fill_out_report(bluetooth_report, false);
             if (memcmp(prev_bluetooth_report, bluetooth_report, bluetooth_report_size)) {
                 struct bt_conn* conn = get_active_conn();
@@ -2517,7 +2692,11 @@ int main() {
                 }
                 release_conn(conn);
             }
+            }
 #endif
+            if (transport == TRANSPORT_USB_ONLY || IS_ENABLED(CONFIG_PGF_ESB_DONGLE)) {
+                k_sleep(K_MSEC(20));
+            }
         }
     }
 

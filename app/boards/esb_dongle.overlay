@@ -1,0 +1,27 @@
+/ {
+    /* The dongle has no physical buttons. These dummy nodes keep the
+     * button enum identical to the controller build so the RF bit mapping
+     * lines up 1:1. All point at an unused pin, pulled up, never pressed. */
+    gamepad-buttons {
+        compatible = "gpio-keys";
+        system { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        dpad-left { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        dpad-right { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        dpad-up { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        dpad-down { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        south { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        east { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        west { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        north { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        l1 { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        r1 { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        l2 { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        r2 { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        l3 { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        r3 { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        select { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        start { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        home { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        button14 { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+    };
+};

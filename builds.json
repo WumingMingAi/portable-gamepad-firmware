@@ -222,11 +222,29 @@
             "EXTRA_CONF_FILE": [
                 "boards/bt.conf",
                 "boards/bt_ncs.conf",
-                "boards/usb.conf"
+                "boards/usb.conf",
+                "boards/esb_rf.conf"
             ],
             "EXTRA_DTC_OVERLAY_FILE": [
                 "boards/hid_dev.overlay",
-                "boards/pro_micro_mapping.overlay"
+                "boards/pro_micro_mapping.overlay",
+                "boards/transport_switch.overlay"
+            ]
+        }
+    },
+    {
+        "name": "nice_nano_dongle",
+        "sdk": "ncs",
+        "board": "nice_nano",
+        "artifact_built_name": "app/zephyr/zephyr.uf2",
+        "extra_params": {
+            "EXTRA_CONF_FILE": [
+                "boards/usb.conf",
+                "boards/esb_dongle.conf"
+            ],
+            "EXTRA_DTC_OVERLAY_FILE": [
+                "boards/hid_dev.overlay",
+                "boards/esb_dongle.overlay"
             ]
         }
     },
