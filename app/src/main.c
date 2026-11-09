@@ -1928,7 +1928,9 @@ static void handle_buttons() {
         int64_t duration = now - sys_button_pressed_at;
         if (duration >= SYS_BUTTON_VERY_LONG_PRESS_MS) {
             sys_button_very_long_press_handled = true;
-            /* Wired bootloader entry requires the system button (Start)
+if (usb_ready) {
+  #if DT_NODE_EXISTS(DT_PATH(gamepad_buttons, home))
+                  /* Wired bootloader entry requires the system button (Start)
                    * AND Home to be held together, to avoid accidental entry. */
                   if (BUTTON_GET(home)) {
                       set_status_led(false);
