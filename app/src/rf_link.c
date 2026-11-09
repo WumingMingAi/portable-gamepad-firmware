@@ -15,6 +15,9 @@ LOG_MODULE_REGISTER(rf_link, LOG_LEVEL_INF);
 #ifdef CONFIG_ESB
 
 #include <esb.h>
+#ifdef CONFIG_ESB_MPSL_TIMESLOT
+#include <mpsl.h>
+#endif
 
 // Fixed link address: pipe 0, base address + prefix.
 // Personal-device binding: both ends of this project share these constants.
@@ -68,8 +71,18 @@ void rf_link_init(void)
     config.retransmit_count = 2;
     config.tx_mode = ESB_TXMODE_AUTO;
     config.selective_auto_ack = true;
-    /* Both ends are nRF52 -> 40us ramp-up instead of 130us. */
-    config.use_fast_ramp_up = true;
+    /* Keep the standard 130us radio ramp-up: CONFIG_ESB_FAST_SWITCHING is
+     * nRF54H20-only, and the official nRF52 samples leave this disabled. */
+    config.use_fast_ramp_up = false;
+
+#ifdef CONFIG_ESB_MPSL_TIMESLOT
+    /* ESB timeslot mode needs MPSL running underneath. mpsl_init() is
+     * idempotent, so this is safe even if BLE already initialized it. */
+    if (mpsl_init() < 0) {
+        LOG_ERR("mpsl_init failed");
+        return;
+    }
+#endif
 
     if (esb_init(&config) != 0) {
         LOG_ERR("esb_init failed");
