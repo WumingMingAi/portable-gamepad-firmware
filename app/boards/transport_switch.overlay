@@ -3,10 +3,11 @@
      *   switch_a to GND -> BLE transport
      *   switch_b to GND -> ESB (2.4GHz) transport
      *   neither         -> USB-only (all radios off)
-     * Change the pins below if your board breaks out different ones. */
+     * Pins: the extra mid-board pads of the ProMicro nRF52840 clone
+     * (silk labels 101 = P1.01 and 102 = P1.02). */
     transport-switch {
         compatible = "gpio-keys";
-        switch_a { gpios = <&gpio0 7 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
-        switch_b { gpios = <&gpio0 12 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        switch_a { gpios = <&gpio1 1 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
+        switch_b { gpios = <&gpio1 2 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; };
     };
 };

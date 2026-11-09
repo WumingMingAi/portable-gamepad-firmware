@@ -139,7 +139,7 @@ size_t bluetooth_report_size;
 uint8_t bluetooth_report_id;
 #endif
 
-#define CONFIG_VERSION 2
+#define CONFIG_VERSION 3
 
 struct __attribute__((packed)) config_t {
     uint8_t config_version;
